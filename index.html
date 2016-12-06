@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title> Neural Network Bullshit </title>
+        
+        <script language="javascript" type="text/javascript" src="./js/jquery.js"></script>
+        <script language="javascript" type="text/javascript" src="./js/jquery.flot.js"></script>
+        <script language="javascript" type="text/javascript" src="./js/synaptic.js"></script>
+        <script language="javascript" type="text/javascript" src="./js/lodash.js"></script>
+        <script language="javascript" type="text/javascript" src="./js/vue.js"></script>
+
+        <link rel="stylesheet" type="text/css" href="./css/bulma.css">
+
+        <script>
+
+            function getMapperFunction(domain, range) {
+                var f = function (x) {
+                    return ((x - domain.min ) * (range.max - range.min) / (domain.max - domain.min)) + range.min;
+                }
+
+                return f;
+            }
+
+            /* Normalizer and denormalizer functions */
+            var normalizeInput;
+            var normalizeOutput;
+            var denormalizeInput;
+            var denormalizeOutput;
+
+            window.onload = function() {
+
+
+                let data = [];
+                var trainingSet = [];
+                var testSet = [];
+                var error = null;
+                var learningRate = 0.2;
+
+                function createNetwork() {
+                    return new synaptic.Architect.Perceptron(1, 7, 1);
+                }
+
+                var network = createNetwork();
+
+                /* Initialize normalizers and denormalizers */
+                initNormalizers();
+
+                var domain = data.map(point => point[0]);
+                var step = (_.max(domain) - _.min(domain)) / (domain.length * 5);
+                for (let i = _.min(domain); i <= _.max(domain); i+=step) {
+                    testSet.push(normalizeInput(i));
+                }
+
+                console.log();
+
+                /* Extract training set from data points, normalized */
+                trainingSet = data.map((point) => {
+                    return { input: [normalizeInput(point[0])], output: [normalizeOutput(point[1])] };
+                });
+
+                function getMSE() {
+                    return trainingSet.map((data) => {
+                        return Math.pow((network.activate(data.output) - data.output[0]), 2);
+                    }).reduce((total = 0, next) => { return total + next; }) / trainingSet.length;
+                }                
+                
+
+                function initNormalizers() {
+                    normalizeInput = getMapperFunction(
+                    {
+                        min: _.min(data.map(point => point[0])),
+                        max: _.max(data.map(point => point[0]))
+                    }, 
+                    {
+                        min: 0,
+                        max: 1
+                    });
+
+                    normalizeOutput = getMapperFunction(
+                    {
+                        min: _.min(data.map(point => point[1])),
+                        max: _.max(data.map(point => point[1]))
+                    }, 
+                    {
+                        min: 0,
+                        max: 1
+                    });
+
+                    denormalizeInput = getMapperFunction(
+                    {
+                        min: 0,
+                        max: 1
+                    }, 
+                    {
+                        min: _.min(data.map(point => point[0])),
+                        max: _.max(data.map(point => point[0]))
+                    });
+
+                    denormalizeOutput = getMapperFunction(
+                    {
+                        min: 0,
+                        max: 1
+                    }, 
+                    {
+                        min: _.min(data.map(point => point[1])),
+                        max: _.max(data.map(point => point[1]))
+                    });
+                }
+
+                var intervalHandle = null;
+
+                function startTraining() {
+                    /* Initialize normalizers and denormalizers */
+                    initNormalizers();
+
+                    trainingSet = data.map((point) => {
+                        return { input: [normalizeInput(point[0])], output: [normalizeOutput(point[1])] };
+                    });
+
+                    testSet = [];
+                    var domain = data.map(point => point[0]);
+                    var step = (_.max(domain) - _.min(domain)) / (domain.length * 10);
+                    for (let i = _.min(domain); i <= _.max(domain); i+=step) {
+                        testSet.push(normalizeInput(i));
+                    }
+
+                    intervalHandle = setInterval(function () {
+                        train();
+                        plot.setData(
+                            [
+                                {
+                                    data: trainingSet.map((data) => { return [denormalizeInput(data.input[0]), denormalizeOutput(data.output[0])]; }),
+                                    lines: { show: false },
+                                    points: { show: true } 
+                                },
+                                {
+                                    data: testSet.map((data) => { return [denormalizeInput(data), denormalizeOutput(network.activate([data])[0]) ]  ; }),
+                                    lines: { show: true },
+                                    points: { show: false } 
+                                }
+                            ]
+                        );
+                        plot.setupGrid();
+                        plot.draw();
+                    }, 4);
+                }
+
+
+                function stopTraining() {
+                    clearInterval(intervalHandle);
+                }
+
+
+                var app = new Vue({
+                    el: "#app",
+                    data: {
+                        trainingData: data,
+                        isTraining: false,
+                        xInput: 0,
+                        yInput: 0,
+                        xPredict: 0,
+                        error: error
+                    },
+                    methods: {
+                        toggleTraining: function () {
+                            this.isTraining = !this.isTraining;
+
+                            if (this.isTraining) {
+                                startTraining();
+                            }
+                            else {
+                                stopTraining();
+                            }
+                        },
+
+                        addTrainingData: function() {
+                            this.trainingData.push([this.xInput, this.yInput]);
+                            
+                            /* Initialize normalizers and denormalizers */
+                            initNormalizers();
+
+                            /* Extract training set from data points, normalized */
+                            trainingSet = data.map((point) => {
+                                return { input: [normalizeInput(point[0])], output: [normalizeOutput(point[1])] };
+                            });
+
+                            plot.setData(
+                                [
+                                    {
+                                        data: trainingSet.map((data) => { return [denormalizeInput(data.input[0]), denormalizeOutput(data.output[0])]; }),
+                                        lines: { show: false },
+                                        points: { show: true } 
+                                    },
+                                    {
+                                        data: trainingSet.map((data) => { return [denormalizeInput(data.input[0]), denormalizeOutput(network.activate(data.input))]; }),
+                                        lines: { show: true },
+                                        points: { show: false } 
+                                    }
+                                ]
+                            );
+
+                            plot.setupGrid();
+                            plot.draw();
+                        },
+
+                        addSinTrainingData: function () {
+                            for (let i = 0; i <= 360; i+= 15) {
+                                this.trainingData.push([i, Math.sin(i * 2 * Math.PI / 360)]);
+                            }
+
+                            /* Initialize normalizers and denormalizers */
+                            initNormalizers();
+
+                            /* Extract training set from data points, normalized */
+                            trainingSet = data.map((point) => {
+                                return { input: [normalizeInput(point[0])], output: [normalizeOutput(point[1])] };
+                            });
+
+                            plot.setData(
+                                [
+                                    {
+                                        data: trainingSet.map((data) => { return [denormalizeInput(data.input[0]), denormalizeOutput(data.output[0])]; }),
+                                        lines: { show: false },
+                                        points: { show: true } 
+                                    },
+                                    {
+                                        data: trainingSet.map((data) => { return [denormalizeInput(data.input[0]), denormalizeOutput(network.activate(data.input))]; }),
+                                        lines: { show: true },
+                                        points: { show: false } 
+                                    }
+                                ]
+                            );
+
+                            plot.setupGrid();
+                            plot.draw();
+                        },
+
+                        resetNetwork: function() {
+                            data = [];
+                            this.trainingData = data;
+                            this.isTraining = false;
+                            stopTraining();
+                            error = 0;
+                            this.error = error;
+                            trainingSet = [];
+                            testSet = [];
+                            network = createNetwork();
+                            plot.setData([]);
+                            plot.setupGrid();
+                            plot.draw();
+                        }
+                    },
+                    computed: {
+                        toggleTrainingButtonLabel: function() {
+                            if (this.isTraining) { return "Stop Training"; }
+                            return "Start Training"
+                        },
+
+                        yPredict: function() {
+                            return denormalizeOutput(network.activate([normalizeInput(this.xPredict)]));
+                        }
+                    }
+                });
+
+                function train() {
+                    trainingSet.forEach((point) => {
+                        network.activate(point.input);
+                        network.propagate(learningRate, point.output);
+                    });
+
+                    app.error = getMSE();
+                }
+
+                var plot = $.plot("#graph",
+                    [
+                        {
+                            data: trainingSet.map((data) => { return [data.input[0], data.output[0]]; }),
+                            lines: { show: false },
+                            points: { show: true } 
+                        }
+                    ]
+                );
+            }
+        </script>
+
+        <style>
+            .columns {
+                margin: 40px;
+            }
+
+            h1 {
+                text-align: center;
+            }
+
+            #graph {
+                height: 300px;
+                border: thin solid black;
+            }
+
+            .control-panel {
+                padding: 20px;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div id="app">
+
+            <section class="hero is-primary">
+                <div class="hero-body">
+                    <div class="container">
+                        <p class="title"> Program Jaringan Syaraf Tiruan Untuk Memprediksi Fungsi Matematis</p>
+                        <p class="subtitle">
+                            Antonius Yonathan (D1041131037), Mirda Wahyuni (D1041131037), Ramananda Pratama (D1041131011)
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <div class="columns">
+                <div class="column">
+                    <h1 class="title is-3"> Panel Kendali </h1>
+
+                    <div class="control-panel">
+                        <h2 class="title is-5"> Prediksi Nilai: </h2>
+                        <div class="control">
+                            <label class="label"> Input (x): </label>
+                            <input v-model="xPredict" class="input" type="number">
+                        </div>
+                        <div class="control">
+                            <label class="label"> Output (f(x)) </label>
+                            <input v-bind:value="yPredict" class="input" type="number" disabled>
+                        </div>
+                    </div>
+
+                    <div class="control-panel">
+                        <h2 class="title is-5"> Tambahkan Data Training: </h2>
+
+                        <div class="control">
+                            <label class="label"> Input (x): </label>
+                            <input v-model="xInput" class="input" type="number">
+                        </div>
+                        <div class="control">
+                            <label class="label"> Output (f(x)) </label>
+                            <input v-model="yInput" class="input" type="number">
+                        </div>
+                        <div class="control" style="text-align: right;">
+                            <button v-on:click="addSinTrainingData()" class="button is-primary"> Gunakan Training Set sin(x) </button>
+                            <button v-on:click="addTrainingData()" class="button is-info"> Tambahkan </button>
+                        </div>
+                    </div>
+
+                    <div class="control-panel">
+                        <h2 class="title is-5"> Data Training: </h2>
+                        
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th> x </th>
+                                    <th> f(x) </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="data in trainingData">
+                                    <td> {{ data[0] }} </td>
+                                    <td> {{ data[1] }} </td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                    </div>
+
+
+                </div>
+
+                <div class="column">
+                    <h1 class="title is-3"> Grafik f(x) </h1>
+
+                    <nav class="level">
+                        <div class="level-left">
+                            <div class="level-item">
+                                <button v-on:click="resetNetwork()" class="button is-warning"> Reset </button>
+                            </div>
+                            <div class="level-item">
+                                <button v-bind:class="{ 'is-danger': isTraining, 'is-success': !isTraining }" v-on:click="toggleTraining()" class="button"> {{ toggleTrainingButtonLabel }} </button>
+                            </div>
+                        </div>
+
+                        <div class="level-right">
+                            <div class="level-item">
+                                <span class="title is-5"> Error: {{ error }} </span>
+                            </div>
+                        </div>
+                    </nav>
+
+                    <div id="graph" width="100%"></div>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>
